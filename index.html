@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Log Analyzer</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; line-height: 1.5; color: #333; max-width: 1600px; margin: 0 auto; padding: 15px; background-color: #f9f9f9; }
+  h1 { margin-top: 0; }
+  details > summary { cursor: pointer; font-weight: bold; padding: 10px; background-color: #eee; border: 1px solid #ccc; border-radius: 5px; }
+  textarea { width: 100%; box-sizing: border-box; padding: 10px; font-family: monospace; height: 150px; border: 1px solid #ccc; border-radius: 5px; margin-top: 10px; }
+  .controls, .stats-bar { display: flex; gap: 10px; align-items: center; margin: 15px 0; flex-wrap: wrap; }
+  .stats-bar { font-size: 14px; background: #eee; padding: 8px 12px; border-radius: 5px; }
+  .error-bar { color: #D8000C; background-color: #FFD2D2; }
+  button { background-color: #007bff; color: white; padding: 8px 15px; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; }
+  button:hover { background-color: #0056b3; }
+  .level-filters button.active { background-color: #28a745; }
+  input[type="text"] { padding: 8px; font-size: 14px; border: 1px solid #ccc; border-radius: 5px; flex-grow: 1; min-width: 200px; }
+  .summary-container { display: flex; align-items: flex-start; gap: 20px; margin-bottom: 15px; }
+  .summary-table-wrapper { flex: 1; min-width: 0; border: 1px solid #ddd; border-radius: 5px; background: #fff; overflow: hidden; }
+  .summary-table-wrapper h3 { margin: 0; padding: 10px; background: #f2f2f2; border-bottom: 1px solid #ddd; font-size: 1em; }
+  .summary-table-wrapper table { width: 100%; table-layout: fixed; }
+  .summary-table-wrapper td { padding: 8px 10px; border-bottom: 1px solid #eee; font-size: 0.9em; vertical-align: top; white-space: normal; word-break: break-all; }
+  .summary-table-wrapper .count { width: 20%; text-align: right; padding-right: 15px; font-weight: bold; }
+  .table-wrapper { border: 1px solid #ccc; }
+  .header-table, .body-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  #table-container { position: relative; height: 70vh; overflow-y: auto; background: #fff; }
+  #table-sizer { position: relative; width: 100%; top: 0; left: 0; }
+  .body-table { position: absolute; top: 0; left: 0; }
+  th, td { padding: 10px; border-right: 1px solid #ddd; text-align: left; word-break: break-word; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  th { background-color: #f2f2f2; cursor: pointer; user-select: none; border-bottom: 1px solid #ccc; }
+  td { border-bottom: 1px solid #eee; }
+  .col-counter, .col-err-counter { width: 6%; } .col-level { width: 8%; } .col-time { width: 17%; } .col-msg { width: 33%; } .col-url { width: 30%; }
+  td.level-ERROR { color: #d8000c; font-weight:500; } td.level-WARN { color: #9f6000; }
+  a { color: #007bff; }
+</style>
+</head>
+<body>
+
+<h1>Log Analyzer</h1>
+<details id="input-container" open>
+  <summary>Input &amp; Generation</summary>
+  <textarea id="logInput" placeholder="Paste your log data here..."></textarea>
+  <div class="controls"><button onclick="generateReport()">Generate Report</button></div>
+</details>
+
+<div id="report-output" style="display:none;"></div>
+
+<script>
+let currentWorker;
+let allLogs = [];
+let displayedLogs = [];
+const VIRTUAL_ROW_HEIGHT = 41;
+const state = { levelFilter: 'ALL', textFilter: '', sortKey: 'index', sortDirection: 'asc' };
+
+function generateReport() {
+    const reportOutput = document.getElementById('report-output');
+    reportOutput.style.display = 'block';
+    reportOutput.innerHTML = `<div id="stats-bar" class="stats-bar">Processing in background...</div>`;
+    
+    if (currentWorker) currentWorker.terminate();
+    try {
+        currentWorker = new Worker('worker.js');
+    } catch (e) {
+        document.getElementById('stats-bar').textContent = `Error: Could not create worker. Please run from a web server.`;
+        return;
+    }
+    
+    currentWorker.onerror = e => {
+        document.getElementById('stats-bar').textContent = `Fatal Error in Worker: ${e.message}`;
+        currentWorker.terminate();
+    };
+
+    currentWorker.onmessage = e => {
+        if (e.data.error) {
+            document.getElementById('stats-bar').textContent = `Parsing Error: ${e.data.error}`;
+            currentWorker.terminate();
+            return;
+        }
+
+        const { logs, stats, topErrors, topWarnings, topInfos } = e.data;
+        allLogs = logs;
+
+        const summaryHtml = buildSummaryHtml({ topErrors, topWarnings, topInfos });
+
+        reportOutput.innerHTML = `
+            <div id="stats-bar" class="stats-bar">
+                Found: ${stats.total} Logs | ${stats.errors} Errors | ${stats.warnings} Warnings
+            </div>
+            ${summaryHtml}
+            <div id="report-controls" class="controls">
+                <div class="level-filters">
+                    <button class="active" data-level="ALL" onclick="updateFilters(this)">All</button>
+                    <button data-level="ERROR" onclick="updateFilters(this)">Errors</button>
+                    <button data-level="WARN" onclick="updateFilters(this)">Warnings</button>
+                    <button data-level="INFO" onclick="updateFilters(this)">Info</button>
+                </div>
+                <input type="text" id="searchInput" oninput="updateFilters()" placeholder="Filter by message or URL...">
+            </div>
+            <div class="table-wrapper">
+                <table class="header-table">
+                    <thead>
+                        <tr>
+                            <th class="col-counter" onclick="updateSort('index')">#</th>
+                            <th class="col-err-counter" onclick="updateSort('errorCount')">Err #</th>
+                            <th class="col-level" onclick="updateSort('level')">Level</th>
+                            <th class="col-time" onclick="updateSort('timestamp')">Timestamp</th>
+                            <th class="col-msg" onclick="updateSort('message')">Message</th>
+                            <th class="col-url" onclick="updateSort('url')">URL</th>
+                        </tr>
+                    </thead>
+                </table>
+                <div id="table-container" onscroll="renderVisibleRows()">
+                    <div id="table-sizer"></div>
+                    <table class="body-table">
+                        <colgroup><col class="col-counter"><col class="col-err-counter"><col class="col-level"><col class="col-time"><col class="col-msg"><col class="col-url"></colgroup>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>`;
+
+        document.getElementById('input-container').open = false;
+        
+        requestAnimationFrame(() => {
+            syncColumnWidths();
+            processData();
+        });
+        currentWorker.terminate();
+    };
+    currentWorker.postMessage(document.getElementById('logInput').value);
+}
+
+function buildSummaryHtml({ topErrors, topWarnings, topInfos }) {
+    const createTable = (title, data) => {
+        if (!data || data.length === 0) return '';
+        let tableHtml = `<div class="summary-table-wrapper"><h3>Top 5 ${title}</h3><table>`;
+        for (const [message, count] of data) {
+            tableHtml += `<tr><td class="count" title="${count} occurrences">${count}x</td><td title="${message}">${message}</td></tr>`;
+        }
+        return tableHtml + '</table></div>';
+    };
+    const errorTable = createTable('Errors', topErrors);
+    const warningTable = createTable('Warnings', topWarnings);
+    const infoTable = createTable('Infos', topInfos);
+
+    if (!errorTable && !warningTable && !infoTable) return '';
+    return `<div class="summary-container">${errorTable}${warningTable}${infoTable}</div>`;
+}
+
+function syncColumnWidths() {
+    const headerCols = document.querySelectorAll('.header-table th');
+    const bodyCols = document.querySelectorAll('.body-table colgroup col');
+    headerCols.forEach((th, i) => {
+        if (bodyCols[i]) bodyCols[i].style.width = `${th.offsetWidth}px`;
+    });
+}
+
+function updateFilters(btn) {
+    if (btn) {
+        document.querySelectorAll('.level-filters button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        state.levelFilter = btn.dataset.level;
+    }
+    state.textFilter = document.getElementById('searchInput').value.toLowerCase();
+    processData();
+}
+
+function updateSort(sortKey) {
+    if (state.sortKey === sortKey) state.sortDirection = state.sortDirection === 'asc' ? 'desc' : 'asc';
+    else { state.sortKey = sortKey; state.sortDirection = 'asc'; }
+    processData();
+}
+
+function processData() {
+    let filtered = allLogs.filter(log =>
+        (state.levelFilter === 'ALL' || log.level === state.levelFilter) &&
+        (state.textFilter === '' || log.message.toLowerCase().includes(state.textFilter) || log.url.toLowerCase().includes(state.textFilter))
+    );
+    const key = state.sortKey;
+    const dir = state.sortDirection === 'asc' ? 1 : -1;
+    filtered.sort((a, b) => {
+        const valA = a[key] ?? (typeof a[key] === 'number' ? 0 : '');
+        const valB = b[key] ?? (typeof b[key] === 'number' ? 0 : '');
+        if (valA < valB) return -1 * dir;
+        if (valA > valB) return 1 * dir;
+        return 0;
+    });
+    displayedLogs = filtered;
+    document.getElementById('table-container').scrollTop = 0;
+    renderVisibleRows();
+}
+
+function renderVisibleRows() {
+    const container = document.getElementById('table-container');
+    const sizer = document.getElementById('table-sizer');
+    const tbody = document.querySelector('.body-table tbody');
+    if (!container || !sizer || !tbody) return;
+
+    const totalHeight = displayedLogs.length * VIRTUAL_ROW_HEIGHT;
+    sizer.style.height = `${totalHeight}px`;
+    let startIndex = Math.floor(container.scrollTop / VIRTUAL_ROW_HEIGHT);
+    let endIndex = Math.min(startIndex + Math.ceil(container.clientHeight / VIRTUAL_ROW_HEIGHT) + 5, displayedLogs.length);
+    
+    tbody.innerHTML = displayedLogs.slice(startIndex, endIndex).map(log => `
+        <tr>
+            <td class="col-counter">${log.index + 1}</td>
+            <td class="col-err-counter">${log.errorCount || ''}</td>
+            <td class="col-level level-${log.level}">${log.level}</td>
+            <td class="col-time">${log.timestamp}</td>
+            <td class="col-msg" title="${log.message}">${log.message}</td>
+            <td class="col-url">${log.url ? `<a href="${log.url}" target="_blank" rel="noopener noreferrer" title="${log.url}">${log.url}</a>` : ''}</td>
+        </tr>`).join('');
+    
+    tbody.parentElement.style.transform = `translateY(${startIndex * VIRTUAL_ROW_HEIGHT}px)`;
+}
+</script>
+
+</body>
+</html>
