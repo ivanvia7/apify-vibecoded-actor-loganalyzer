@@ -42,6 +42,19 @@
   a { color: #007bff; }
   .summary-table-wrapper td, .duration-summary td { white-space: normal; text-overflow: unset; overflow: visible; }
   .body-table td.col-msg, .body-table td.col-url { white-space: normal; text-overflow: unset; overflow: visible; }
+  .request-summary { border: 1px solid #ddd; border-radius: 5px; background: #fff; margin-bottom: 15px; }
+  .request-summary h3 { margin: 0; padding: 10px; background: #f3f3f3; border-bottom: 1px solid #eee; font-size: 1em; }
+  .request-summary p { margin: 0; padding: 8px 10px; font-size: 0.85em; color: #555; border-bottom: 1px solid #f0f0f0; }
+  .level-sections { display: flex; gap: 15px; flex-wrap: wrap; padding: 10px; }
+  .level-section { flex: 1 1 280px; min-width: 240px; }
+  .level-section h4 { margin: 0 0 6px 0; font-size: 0.95em; }
+  .level-table-wrapper { max-height: 220px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px; }
+  .level-table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
+  .level-table td, .level-table th { padding: 6px 8px; border-bottom: 1px solid #f2f2f2; }
+  .level-table tr:nth-child(even) { background: #fafafa; }
+  .level-table .count-col { width: 20%; text-align: right; font-variant-numeric: tabular-nums; }
+  .level-table .pct-col { width: 15%; text-align: right; font-variant-numeric: tabular-nums; }
+  .status-badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 0.75em; color: #fff; }
 </style>
 </head>
 <body>
@@ -62,6 +75,8 @@
 let currentWorker;
 let allLogs = [];
 let displayedLogs = [];
+let levelBreakdowns = null;
+let levelTotals = null;
 const VIRTUAL_ROW_HEIGHT = 41;
 const state = { levelFilter: 'ALL', textFilter: '', sortKey: 'index', sortDirection: 'asc' };
 const APIFY_LOG_URL_REGEX = /^https:\/\/api\.apify\.com\/v2\/logs\/[A-Za-z0-9]+$/;
@@ -161,11 +176,14 @@ async function generateReport() {
             return;
         }
 
-        const { logs, stats, topErrors, topWarnings, topInfos, topDurations, totalDurationMs } = e.data;
+        const { logs, stats, topErrors, topWarnings, topInfos, topDurations, totalDurationMs, levelBreakdowns: lb, levelTotals: lt } = e.data;
         allLogs = logs;
+        levelBreakdowns = lb || null;
+        levelTotals = lt || null;
 
         const summaryHtml = buildSummaryHtml({ topErrors, topWarnings, topInfos });
         const durationHtml = buildDurationSummary(topDurations, totalDurationMs);
+        const requestOutcomeHtml = buildRequestOutcomeSummary(levelBreakdowns, levelTotals);
 
         reportOutput.innerHTML = `
             <div id="stats-bar" class="stats-bar">
@@ -173,6 +191,7 @@ async function generateReport() {
             </div>
             ${summaryHtml}
             ${durationHtml}
+            ${requestOutcomeHtml}
             <div id="report-controls" class="controls">
                 <div class="level-filters">
                     <button class="active" data-level="ALL" onclick="updateFilters(this)">All</button>
@@ -284,6 +303,35 @@ function buildDurationSummary(topDurations, totalDurationMs) {
         <p>Delay represents the idle time between a log entry and the next timestamped entry. Grouped by identical messages.</p>
         ${durationTable}
         ${totalLine}
+    </div>`;
+}
+
+function buildRequestOutcomeSummary(breakdowns, totals) {
+    if (!breakdowns) return '';
+    const sections = Object.entries(breakdowns)
+        .filter(([, entries]) => entries && entries.length)
+        .map(([level, entries]) => {
+            const total = totals?.[level] || 0;
+            const rows = entries.map(({ message, count }) => {
+                const pct = total ? ((count / total) * 100).toFixed(1) : '0.0';
+                return `<tr>
+                    <td class="count-col" title="${count} occurrences">${count}</td>
+                    <td class="pct-col" title="${pct}% of ${level.toLowerCase()} entries">${pct}%</td>
+                    <td title="${message}">${message}</td>
+                </tr>`;
+            }).join('');
+            return `<div class="level-section">
+                <h4>${level} (${total})</h4>
+                <div class="level-table-wrapper">
+                    <table class="level-table"><tbody>${rows}</tbody></table>
+                </div>
+            </div>`;
+        }).join('');
+    if (!sections) return '';
+    return `<div class="request-summary">
+        <h3>Request Outcomes</h3>
+        <p>Counts aggregated by normalized message for each log level, giving a quick read on the most common milestones and blockers.</p>
+        <div class="level-sections">${sections}</div>
     </div>`;
 }
 

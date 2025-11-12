@@ -31,6 +31,7 @@ onmessage = function(e) {
     const messageCounts = { ERROR: {}, WARN: {}, INFO: {} };
     let errorCounter = 0;
     const lines = logText.split('\n');
+    const autoscaledSnapshots = [];
 
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
@@ -46,7 +47,8 @@ onmessage = function(e) {
             stats.total++;
             if (level === 'ERROR') { stats.errors++; errorCounter++; }
             else if (level === 'WARN') { stats.warnings++; }
-            
+            let parsedJson = null;
+
             currentLog = {
                 index: allLogs.length,
                 timestamp,
@@ -62,6 +64,7 @@ onmessage = function(e) {
                 const jsonMatch = message.match(/(\{.*\})$/);
                 if (jsonMatch && jsonMatch[1]) {
                     const data = JSON.parse(jsonMatch[1]);
+                    parsedJson = data;
                     currentLog.url = (typeof data.url === 'object' ? data.url.url : data.url) || '';
                     currentLog.message = currentLog.message.replace(jsonMatch[1], '').trim();
                 } else {
@@ -76,6 +79,20 @@ onmessage = function(e) {
             const msgKey = currentLog.normalizedMessage;
             counts[msgKey] = (counts[msgKey] || 0) + 1;
 
+            if (parsedJson && currentLog.normalizedMessage.startsWith('CheerioCrawler:AutoscaledPool: state')) {
+                const systemStatus = parsedJson.systemStatus || {};
+                const overloadedComponents = Object.entries(systemStatus)
+                    .filter(([key, value]) => typeof value === 'object' && value?.isOverloaded)
+                    .map(([key]) => key.replace(/Info$/, ''));
+                autoscaledSnapshots.push({
+                    timestamp: currentLog.timestamp,
+                    currentConcurrency: parsedJson.currentConcurrency ?? null,
+                    desiredConcurrency: parsedJson.desiredConcurrency ?? null,
+                    isIdle: !!systemStatus.isSystemIdle,
+                    overloadedComponents,
+                });
+            }
+
         } else if (currentLog && line.trim().startsWith('{')) {
             try {
                 const data = JSON.parse(line.trim());
@@ -88,9 +105,17 @@ onmessage = function(e) {
     const topN = 5;
     const getTopItems = (counts) => Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, topN);
 
+    const buildFullBreakdown = (counts) => Object.entries(counts)
+        .map(([message, count]) => ({ message, count }))
+        .sort((a, b) => b.count - a.count);
+
     const topErrors = getTopItems(messageCounts.ERROR);
     const topWarnings = getTopItems(messageCounts.WARN);
     const topInfos = getTopItems(messageCounts.INFO);
+    const levelBreakdowns = Object.fromEntries(Object.entries(messageCounts).map(([level, counts]) => [level, buildFullBreakdown(counts)]));
+    const levelTotals = Object.fromEntries(Object.entries(messageCounts).map(([level, counts]) =>
+        [level, Object.values(counts).reduce((sum, count) => sum + count, 0)]
+    ));
 
     const durationEntries = [];
     const durationGroups = {};
@@ -144,7 +169,18 @@ onmessage = function(e) {
         totalDurationMs = lastWithTs.timestampMs - firstWithTs.timestampMs;
     }
 
-    postMessage({ logs: allLogs, stats, topErrors, topWarnings, topInfos, topDurations: groupedDurations, totalDurationMs });
+    postMessage({
+        logs: allLogs,
+        stats,
+        topErrors,
+        topWarnings,
+        topInfos,
+        topDurations: groupedDurations,
+        totalDurationMs,
+        levelBreakdowns,
+        levelTotals,
+        autoscaledSnapshots
+    });
   } catch (err) {
     postMessage({ error: err.message });
   }
