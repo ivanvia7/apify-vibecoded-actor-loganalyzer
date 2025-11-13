@@ -4,55 +4,448 @@
 <meta charset="UTF-8">
 <title>Log Analyzer</title>
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; line-height: 1.5; color: #333; max-width: 1600px; margin: 0 auto; padding: 15px; background-color: #f9f9f9; }
-  h1 { margin-top: 0; }
-  details > summary { cursor: pointer; font-weight: bold; padding: 10px; background-color: #eee; border: 1px solid #ccc; border-radius: 5px; }
-  textarea { width: 100%; box-sizing: border-box; padding: 10px; font-family: monospace; height: 150px; border: 1px solid #ccc; border-radius: 5px; margin-top: 10px; }
-  .controls, .stats-bar { display: flex; gap: 10px; align-items: center; margin: 15px 0; flex-wrap: wrap; }
-  .stats-bar { font-size: 14px; background: #eee; padding: 8px 12px; border-radius: 5px; }
-  .error-bar { color: #D8000C; background-color: #FFD2D2; }
-  button { background-color: #007bff; color: white; padding: 8px 15px; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; }
-  button:hover { background-color: #0056b3; }
-  .level-filters button.active { background-color: #28a745; }
-  input[type="text"] { padding: 8px; font-size: 14px; border: 1px solid #ccc; border-radius: 5px; flex-grow: 1; min-width: 200px; }
-  .summary-container { display: flex; align-items: flex-start; gap: 20px; margin-bottom: 15px; }
-  .summary-table-wrapper { flex: 1; min-width: 0; border: 1px solid #ddd; border-radius: 5px; background: #fff; overflow: hidden; }
-  .summary-table-wrapper h3 { margin: 0; padding: 10px; background: #f2f2f2; border-bottom: 1px solid #ddd; font-size: 1em; }
-  .summary-table-wrapper table { width: 100%; table-layout: fixed; }
-  .summary-table-wrapper td { padding: 8px 10px; border-bottom: 1px solid #eee; font-size: 0.9em; vertical-align: top; white-space: normal; word-break: break-all; }
-  .summary-table-wrapper .count { width: 20%; text-align: right; padding-right: 15px; font-weight: bold; }
-  .table-wrapper { border: 1px solid #ccc; }
-  .header-table, .body-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-  #table-container { position: relative; height: 70vh; overflow-y: auto; background: #fff; }
-  #table-sizer { position: relative; width: 100%; top: 0; left: 0; }
-  .body-table { position: absolute; top: 0; left: 0; }
-  th, td { padding: 10px; border-right: 1px solid #ddd; text-align: left; word-break: break-word; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  th { background-color: #f2f2f2; cursor: pointer; user-select: none; border-bottom: 1px solid #ccc; }
-  td { border-bottom: 1px solid #eee; }
-  .col-counter, .col-err-counter { width: 6%; } .col-level { width: 8%; } .col-time { width: 17%; } .col-msg { width: 33%; } .col-url { width: 30%; }
-  td.level-ERROR { color: #d8000c; font-weight:500; } td.level-WARN { color: #9f6000; }
-  a { color: #007bff; }
+:root {
+  --bg-primary: #f8f9fa;
+  --bg-surface-1: #ffffff;
+  --bg-surface-2: #f1f3f5;
+  --border-primary: #dee2e6;
+  --border-secondary: #e9ecef;
+  --text-primary: #212529;
+  --text-secondary: #6c757d;
+  --primary-main: #007bff;
+  --primary-dark: #0069d9;
+  --error-text: #d90429;
+  --warn-text: #f79500;
+  
+  --shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.08), 0 2px 4px -1px rgba(15, 23, 42, 0.04);
+  
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+}
+
+body {
+  font-family: var(--font-body);
+  line-height: 1.6;
+  color: var(--text-primary);
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg-primary);
+}
+
+.page {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: clamp(20px, 4vw, 32px);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 2.0rem;
+  font-weight: 600;
+}
+
+details > summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 16px 48px 16px 20px;
+  background-color: var(--bg-surface-1);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  list-style: none;
+  position: relative;
+  transition: box-shadow 0.2s ease;
+}
+details > summary:hover {
+  box-shadow: var(--shadow-sm);
+}
+details > summary::-webkit-details-marker { display: none; }
+details > summary::after {
+  content: '›';
+  position: absolute;
+  right: 20px;
+  top: 50%;
+  transform: translateY(-50%) rotate(90deg);
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--text-secondary);
+  transition: transform 0.2s ease;
+}
+details[open] > summary::after {
+  transform: translateY(-50%) rotate(-90deg);
+}
+
+textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 14px;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  height: 160px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  margin-top: 14px;
+  background: var(--bg-surface-1);
+}
+textarea:focus {
+  outline: 2px solid var(--primary-main);
+  border-color: transparent;
+}
+
+.controls, .stats-bar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 18px 0 0;
+  flex-wrap: wrap;
+}
+
+.stats-bar {
+  font-size: 14px;
+  background: var(--bg-surface-1);
+  padding: 12px 18px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-primary);
+  box-shadow: var(--shadow-md);
+  margin: 0; /* Override margin from .controls */
+}
+.error-bar { 
+  color: var(--error-text); 
+  background-color: #ffebee;
+  border-color: #f7c5cb;
+}
+
+button {
+  background-color: var(--primary-main);
+  color: white;
+  padding: 10px 16px;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+}
+button:hover { 
+  background-color: var(--primary-dark); 
+  transform: translateY(-1px); 
+}
+button:active {
+  transform: translateY(0);
+}
+button:disabled {
+  background-color: var(--text-secondary);
+  cursor: not-allowed;
+  transform: none;
+}
+
+.level-filters button {
+  background: var(--bg-surface-2);
+  color: var(--text-primary);
+  border: 1px solid var(--border-primary);
+  font-weight: 500;
+  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+.level-filters button:hover {
+  background-color: var(--bg-surface-1); 
+  transform: none;
+  border-color: var(--border-secondary);
+  box-shadow: var(--shadow-sm);
+}
+.level-filters button.active {
+  background-color: var(--primary-main);
+  color: #fff;
+  border-color: var(--primary-main);
+  box-shadow: none;
+}
+.level-filters button.active:hover {
+  background-color: var(--primary-dark);
+  border-color: var(--primary-dark);
+}
+
+input[type="text"] {
+  padding: 10px 14px;
+  font-size: 14px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  flex-grow: 1;
+  min-width: 240px;
+  background: var(--bg-surface-1);
+}
+input[type="text"]:focus {
+  outline: 2px solid var(--primary-main);
+  border-color: transparent;
+}
+
+.summary-container {
+  display: flex;
+  align-items: stretch;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.summary-table-wrapper {
+  flex: 1;
+  min-width: 260px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface-1);
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+}
+.summary-table-wrapper h3 {
+  margin: 0;
+  padding: 14px 18px;
+  background: var(--bg-surface-2);
+  border-bottom: 1px solid var(--border-primary);
+  font-size: 1.0rem;
+  font-weight: 600;
+}
+.summary-table-wrapper table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.summary-table-wrapper td { 
+  padding: 9px 12px; 
+  border-bottom: 1px solid var(--border-secondary); 
+  font-size: 0.9em; 
+  vertical-align: top; 
+  white-space: normal; 
+  word-break: break-all; 
+}
+.summary-table-wrapper tr:last-child td { border-bottom: none; }
+.summary-table-wrapper .count { 
+  width: 20%; 
+  text-align: right; 
+  padding-right: 15px; 
+  font-weight: 600; 
+  font-variant-numeric: tabular-nums;
+}
+
+.duration-summary, .request-summary {
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface-1);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
+.duration-summary h3, .request-summary h3 { 
+  margin: 0; 
+  padding: 14px 18px; 
+  background: var(--bg-surface-2); 
+  border-bottom: 1px solid var(--border-primary); 
+  font-size: 1.0rem; 
+  font-weight: 600;
+}
+.duration-summary p, .request-summary p { 
+  margin: 0; 
+  padding: 10px 18px; 
+  font-size: 0.85em; 
+  color: var(--text-secondary); 
+  border-bottom: 1px solid var(--border-secondary); 
+}
+.duration-summary table { 
+  width: 100%; 
+  border-collapse: collapse; 
+  table-layout: fixed; 
+}
+.duration-summary td, .duration-summary th { 
+  padding: 8px 12px; 
+  border-bottom: 1px solid var(--border-secondary); 
+  font-size: 0.9em; 
+  text-align: left; 
+}
+.duration-summary tr:last-child td { border-bottom: none; }
+.duration-summary .duration { width: 20%; white-space: nowrap; }
+.duration-summary .count-col { width: 12%; text-align: center; }
+
+.table-wrapper { border-radius: var(--radius-lg); }
+.header-table, .body-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+#table-container {
+  position: relative;
+  height: 65vh;
+  overflow-y: auto;
+  background: var(--bg-surface-1);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+#table-sizer { position: relative; width: 100%; top: 0; left: 0; }
+.body-table { position: absolute; top: 0; left: 0; }
+th, td { padding: 10px 12px; border-right: 1px solid var(--border-secondary); text-align: left; word-break: break-word; }
+.header-table th, .body-table td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+th {
+  background-color: var(--bg-surface-2);
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid var(--border-primary);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+th:last-child, td:last-child { border-right: none; }
+td { border-bottom: 1px solid var(--border-secondary); font-size: 0.9rem; }
+.body-table tbody tr:nth-child(even) { background: var(--bg-surface-2); }
+.body-table tbody tr:hover { background-color: var(--border-secondary); }
+
+.col-counter, .col-err-counter { width: 6%; } .col-level { width: 8%; } .col-time { width: 17%; } .col-msg { width: 33%; } .col-url { width: 30%; }
+td.level-ERROR { color: var(--error-text); font-weight:500; } 
+td.level-WARN { color: var(--warn-text); font-weight: 500; }
+a { color: var(--primary-main); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.summary-table-wrapper td, .duration-summary td { white-space: normal; text-overflow: unset; overflow: visible; }
+.body-table td.col-msg, .body-table td.col-url { white-space: normal; text-overflow: unset; overflow: visible; }
+
+.request-summary p { border-bottom: none; }
+.level-sections { display: flex; gap: 16px; flex-wrap: wrap; padding: 16px; }
+.level-section { flex: 1 1 280px; min-width: 240px; }
+.level-section h4 { 
+  margin: 0 0 8px 0; 
+  font-size: 0.95em; 
+  font-weight: 600;
+}
+.level-table-wrapper { 
+  max-height: 220px; 
+  overflow-y: auto; 
+  border: 1px solid var(--border-secondary); 
+  border-radius: var(--radius-md); 
+  background: var(--bg-surface-1); 
+}
+.level-table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
+.level-table td, .level-table th { padding: 6px 8px; border-bottom: 1px solid var(--border-secondary); }
+.level-table tr:nth-child(even) { background: var(--bg-surface-2); }
+.level-table tr:last-child td { border-bottom: none; }
+.level-table .count-col { width: 20%; text-align: right; font-variant-numeric: tabular-nums; }
+.level-table .pct-col { width: 15%; text-align: right; font-variant-numeric: tabular-nums; }
+
+.status-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.75em;
+  color: #fff;
+}
+
+#report-controls {
+  position: sticky;
+  top: 16px;
+  z-index: 5;
+  background: var(--bg-surface-1);
+  padding: 16px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-primary);
+  box-shadow: var(--shadow-md);
+  margin: 0; /* Override margin from .controls */
+}
+
+#report-output > * {
+  margin-bottom: 24px;
+}
 </style>
 </head>
 <body>
-
+<div class="page">
 <h1>Log Analyzer</h1>
 <details id="input-container" open>
   <summary>Input &amp; Generation</summary>
   <textarea id="logInput" placeholder="Paste your log data here..."></textarea>
-  <div class="controls"><button onclick="generateReport()">Generate Report</button></div>
+  <div class="controls">
+    <input type="text" id="logUrlInput" placeholder="https://api.apify.com/v2/logs/..." pattern="https://api\.apify\.com/v2/logs/[A-Za-z0-9]+" title="Use a URL like https://api.apify.com/v2/logs/ID">
+    <button id="generateBtn" onclick="generateReport()">Generate Report</button>
+  </div>
 </details>
 
 <div id="report-output" style="display:none;"></div>
+</div>
 
 <script>
 let currentWorker;
 let allLogs = [];
 let displayedLogs = [];
+let levelBreakdowns = null;
+let levelTotals = null;
 const VIRTUAL_ROW_HEIGHT = 41;
 const state = { levelFilter: 'ALL', textFilter: '', sortKey: 'index', sortDirection: 'asc' };
+const APIFY_LOG_URL_REGEX = /^https:\/\/api\.apify\.com\/v2\/logs\/[A-Za-z0-9]+$/;
 
-function generateReport() {
+function showStatus(message, isError = false) {
+    const reportOutput = document.getElementById('report-output');
+    if (!reportOutput) return;
+    reportOutput.style.display = 'block';
+    reportOutput.innerHTML = `<div class="stats-bar ${isError ? 'error-bar' : ''}">${message}</div>`;
+}
+
+function setGenerateButtonState(isLoading) {
+    const btn = document.getElementById('generateBtn');
+    if (!btn) return;
+    btn.disabled = isLoading;
+    btn.textContent = isLoading ? 'Loading...' : 'Generate Report';
+}
+
+function extractLogText(rawText, contentType = '') {
+    const type = (contentType || '').toLowerCase();
+    if (type.includes('html') || rawText.trim().startsWith('<')) {
+        try {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(rawText, 'text/html');
+            const pre = doc.querySelector('pre');
+            if (pre) return (pre.textContent || '').replace(/\r\n/g, '\n');
+            const bodyText = doc.body ? doc.body.textContent : '';
+            if (bodyText) return bodyText.replace(/\r\n/g, '\n');
+        } catch (err) {
+            return rawText.replace(/\r\n/g, '\n');
+        }
+    }
+    return rawText.replace(/\r\n/g, '\n');
+}
+
+async function generateReport() {
+    const logInput = document.getElementById('logInput');
+    const urlInput = document.getElementById('logUrlInput');
+    let logText = logInput.value.trim();
+
+    if (!logText) {
+        const url = urlInput ? urlInput.value.trim() : '';
+        if (!url) {
+            showStatus('Paste log text or provide a log URL before generating.', true);
+            if (logInput) logInput.focus();
+            return;
+        }
+        if (!APIFY_LOG_URL_REGEX.test(url)) {
+            showStatus('Please enter a valid Apify log URL (https://api.apify.com/v2/logs/ID).', true);
+            if (urlInput) urlInput.focus();
+            return;
+        }
+        try {
+            setGenerateButtonState(true);
+            showStatus('Fetching log from URL ...');
+            const response = await fetch(url, { headers: { 'Accept': 'text/plain, text/html;q=0.9,*/*;q=0.8' } });
+            if (!response.ok) throw new Error(`Request failed (${response.status})`);
+            const rawText = await response.text();
+            logText = extractLogText(rawText, response.headers.get('content-type') || '').trim();
+            if (!logText) throw new Error('No log content found in response');
+            logInput.value = logText;
+        } catch (err) {
+            showStatus(`Failed to fetch log: ${err.message}`, true);
+            setGenerateButtonState(false);
+            return;
+        } finally {
+            setGenerateButtonState(false);
+        }
+    }
+
+    if (!logText) {
+        showStatus('Log input is empty.', true);
+        return;
+    }
+
     const reportOutput = document.getElementById('report-output');
     reportOutput.style.display = 'block';
     reportOutput.innerHTML = `<div id="stats-bar" class="stats-bar">Processing in background...</div>`;
@@ -77,16 +470,22 @@ function generateReport() {
             return;
         }
 
-        const { logs, stats, topErrors, topWarnings, topInfos } = e.data;
+        const { logs, stats, topErrors, topWarnings, topInfos, topDurations, totalDurationMs, levelBreakdowns: lb, levelTotals: lt } = e.data;
         allLogs = logs;
+        levelBreakdowns = lb || null;
+        levelTotals = lt || null;
 
         const summaryHtml = buildSummaryHtml({ topErrors, topWarnings, topInfos });
+        const durationHtml = buildDurationSummary(topDurations, totalDurationMs);
+        const requestOutcomeHtml = buildRequestOutcomeSummary(levelBreakdowns, levelTotals);
 
         reportOutput.innerHTML = `
             <div id="stats-bar" class="stats-bar">
                 Found: ${stats.total} Logs | ${stats.errors} Errors | ${stats.warnings} Warnings
             </div>
             ${summaryHtml}
+            ${durationHtml}
+            ${requestOutcomeHtml}
             <div id="report-controls" class="controls">
                 <div class="level-filters">
                     <button class="active" data-level="ALL" onclick="updateFilters(this)">All</button>
@@ -126,7 +525,7 @@ function generateReport() {
         });
         currentWorker.terminate();
     };
-    currentWorker.postMessage(document.getElementById('logInput').value);
+    currentWorker.postMessage(logText);
 }
 
 function buildSummaryHtml({ topErrors, topWarnings, topInfos }) {
@@ -144,6 +543,90 @@ function buildSummaryHtml({ topErrors, topWarnings, topInfos }) {
 
     if (!errorTable && !warningTable && !infoTable) return '';
     return `<div class="summary-container">${errorTable}${warningTable}${infoTable}</div>`;
+}
+
+function formatDuration(ms, options = {}) {
+    if ((!ms && ms !== 0) || ms < 0) return '';
+    const { allowFractionalSeconds = false } = options;
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    const parts = [];
+    if (hours) parts.push(`${hours}h`);
+    if (minutes) parts.push(`${minutes}m`);
+    const hasHoursOrMinutes = hours || minutes;
+    if (allowFractionalSeconds && !hasHoursOrMinutes && ms < 60000) {
+        const fractionalSeconds = (ms / 1000).toFixed(1).replace(/\.0$/, '');
+        parts.push(`${fractionalSeconds}s`);
+    } else if (!hasHoursOrMinutes) {
+        parts.push(`${seconds}s`);
+    } else if (seconds) {
+        parts.push(`${seconds}s`);
+    }
+    return parts.join(' ') || '0s';
+}
+
+function buildDurationSummary(topDurations, totalDurationMs) {
+    const hasDurations = topDurations && topDurations.length > 0;
+    if (!hasDurations && !totalDurationMs) return '';
+    const rows = (topDurations || []).map(item => `
+        <tr>
+            <td class="duration" title="${item.totalMs} ms total">${formatDuration(item.totalMs)}</td>
+            <td class="count-col" title="${item.count} occurrences">${item.count}</td>
+            <td class="duration" title="Average gap ${item.avgMs.toFixed(1)} ms">${formatDuration(item.avgMs, { allowFractionalSeconds: true })}</td>
+            <td title="${item.sampleStart || 'n/a'}">${item.sampleStart || 'n/a'}</td>
+            <td title="${item.message}">${item.message}</td>
+        </tr>`).join('');
+    const durationTable = hasDurations ? `
+        <table>
+            <thead>
+                <tr>
+                    <th class="duration">Total Delay</th>
+                    <th class="count-col">Hits</th>
+                    <th class="duration">Avg Delay</th>
+                    <th>Example Start</th>
+                    <th>Step</th>
+                </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+        </table>` : '<div style="padding:10px;">Not enough timestamped entries to calculate major delays.</div>';
+    const totalLine = totalDurationMs ? `<div style="padding:12px 18px; border-top:1px solid var(--border-secondary);"><strong style="font-weight: 600;">Observed log duration:</strong> ${formatDuration(totalDurationMs)}</div>` : '';
+    return `<div class="duration-summary">
+        <h3>Slowest Steps</h3>
+        <p>Delay represents the idle time between a log entry and the next timestamped entry. Grouped by identical messages.</p>
+        ${durationTable}
+        ${totalLine}
+    </div>`;
+}
+
+function buildRequestOutcomeSummary(breakdowns, totals) {
+    if (!breakdowns) return '';
+    const sections = Object.entries(breakdowns)
+        .filter(([, entries]) => entries && entries.length)
+        .map(([level, entries]) => {
+            const total = totals?.[level] || 0;
+            const rows = entries.map(({ message, count }) => {
+                const pct = total ? ((count / total) * 100).toFixed(1) : '0.0';
+                return `<tr>
+                    <td class="count-col" title="${count} occurrences">${count}</td>
+                    <td class="pct-col" title="${pct}% of ${level.toLowerCase()} entries">${pct}%</td>
+                    <td title="${message}">${message}</td>
+                </tr>`;
+            }).join('');
+            return `<div class="level-section">
+                <h4>${level} (${total})</h4>
+                <div class="level-table-wrapper">
+                    <table class="level-table"><tbody>${rows}</tbody></table>
+                </div>
+            </div>`;
+        }).join('');
+    if (!sections) return '';
+    return `<div class="request-summary">
+        <h3>Request Outcomes</h3>
+        <p>Counts aggregated by normalized message for each log level, giving a quick read on the most common milestones and blockers.</p>
+        <div class="level-sections">${sections}</div>
+    </div>`;
 }
 
 function syncColumnWidths() {
